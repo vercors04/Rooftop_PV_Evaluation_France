@@ -1,30 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 from PyInstaller.utils.hooks import collect_all
 
+TESTS = ('numba.tests', 'numba.cuda.tests', 'llvmlite.tests', 'shapely.tests', 'geopandas.tests',
+         'pyogrio.tests')
+
 datas = [('data/tables', 'data/tables'), ('data/contours', 'data/contours'),
-         ('a_propos.md', '.'), ('data/assets/logo_soleil.ico', 'data/assets')]
+         ('a_propos.md', '.'), ('data/assets/logo_soleil.ico', 'data/assets'),
+         ('data/assets/logo_soleil.png', 'data/assets')]
 binaries = []
-hiddenimports = ['webview.platforms.winforms', 'webview.platforms.edgechromium']
-tmp_ret = collect_all('pyproj')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pyogrio')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('rasterio')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('geopandas')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('shapely')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pvlib')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('numba')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('llvmlite')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('folium')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('branca')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+if sys.platform == 'win32':
+    hiddenimports = ['webview.platforms.winforms', 'webview.platforms.edgechromium']
+else:
+    hiddenimports = ['webview.platforms.qt']
+for paquet in ('pyproj', 'pyogrio', 'rasterio', 'geopandas', 'shapely', 'pvlib', 'numba',
+               'llvmlite', 'folium', 'branca'):
+    d, b, h = collect_all(paquet)
+    datas += d
+    binaries += b
+    hiddenimports += [m for m in h if not m.startswith(TESTS)]
 
 
 a = Analysis(
@@ -36,9 +30,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['numba.tests', 'numba.cuda.tests', 'llvmlite.tests', 'shapely.tests',
-              'geopandas.tests', 'pyogrio.tests',
-              'jedi', 'IPython', 'parso'],
+    excludes=[*TESTS, 'jedi', 'IPython', 'parso'],
     noarchive=False,
     optimize=0,
 )

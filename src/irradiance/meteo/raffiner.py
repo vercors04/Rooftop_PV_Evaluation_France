@@ -1,10 +1,10 @@
 import csv
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.irradiance.meteo.main_meteo import choisirZone
-from src.irradiance.meteo.grille_calculs import grilleCellules, construireCellule, ecartsCellule
+from src.irradiance.meteo.grille_calculs import grilleCellules, construireTables, ecartsCellule
 from src.irradiance.meteo.grille_fct import cheminTable
 from src.tuile.donnees_dalle import enMetropole
 from src import config
@@ -62,24 +62,6 @@ def mesurer(cellules, ecarts):
     return echecs
 
 
-def _construire(sous):
-    """
-    Construit une sous-cellule absente.
-    --------
-    @param[in] sous : (lat, lon) du centre de la sous-cellule
-
-    @return (lat, lon, etat)
-    """
-    lat, lon = sous
-    if os.path.exists(cheminTable(lat, lon, fine=True)):
-        return (lat, lon, "deja faite")
-    try:
-        construireCellule(lat, lon, fine=True)
-        return (lat, lon, "construite")
-    except Exception as e:
-        return (lat, lon, f"ECHEC : {e}")
-
-
 def main():
     """
     Mesure les ecarts des cellules de la zone choisie, puis construit les sous-cellules au-dela
@@ -111,15 +93,7 @@ def main():
     if input(f"Construire les {len(reste)} restantes, environ {duree:.1f} h sur {config.N_COEURS} "
              f"coeurs (reprise possible) ? (o/n) : ").strip().lower() != "o":
         return
-
-    bilan, t0 = {}, time.time()
-    with ProcessPoolExecutor(max_workers=config.N_COEURS) as ex:
-        for k, (lat, lon, etat) in enumerate(ex.map(_construire, reste), 1):
-            print(f"[{k}/{len(reste)}] {lat:.3f}, {lon:.3f}  {etat}")
-            cle = "ECHEC" if etat.startswith("ECHEC") else etat
-            bilan[cle] = bilan.get(cle, 0) + 1
-    print(f"Termine en {time.time() - t0:.0f}s. "
-          + ", ".join(f"{v} {k}" for k, v in sorted(bilan.items())))
+    construireTables(reste, fine=True)
 
 
 if __name__ == "__main__":

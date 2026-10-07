@@ -1,35 +1,15 @@
 import os
-import time
-from concurrent.futures import ProcessPoolExecutor
 
 from src.acquisition.zone import zone
-from src.irradiance.meteo.grille_calculs import grilleCellules, construireCellule
-from src.irradiance.meteo.grille_fct import cheminTable
+from src.irradiance.meteo.grille_calculs import grilleCellules, construireTables
 from src.tuile.donnees_dalle import enMetropole
 from src import config
 
 
-def _faire(cellule):
+def contours():
     """
-    Construit une cellule absente, saute les autres.
-    --------
-    @param[in] cellule : (lat, lon) du centre
-
-    @return (lat, lon, etat)
-    """
-    lat, lon = cellule
-    if os.path.exists(cheminTable(lat, lon)):
-        return (lat, lon, "deja faite")
-    try:
-        construireCellule(lat, lon)
-        return (lat, lon, "construite")
-    except Exception as e:
-        return (lat, lon, f"ECHEC : {e}")
-
-
-def zonesTracees():
-    """
-    Noms des contours presents dans DIR_GEOJSON, utilisables comme echelle "polygone".
+    Noms des contours presents dans DIR_GEOJSON (zones tracees et zones deja calculees),
+    utilisables comme echelle "polygone".
     --------
     @return liste de noms, triee
     """
@@ -47,7 +27,7 @@ def choisirZone():
     """
     print("Choix de l'echelle territoriale:")
     print("0 : Adresse\n1 : Commune\n2 : Departement\n3 : Region\n4 : France"
-          "\n5 : Zone tracee")
+          "\n5 : Contour enregistre (zone tracee ou deja calculee)")
     choix = input("Choisissez l'echelle (0-5) : ").strip()
 
     code_dep = None
@@ -64,8 +44,8 @@ def choisirZone():
         echelle, nom_zone = "nationale", "France"
     elif choix == "5":
         echelle = "polygone"
-        print("zones disponibles :", ", ".join(zonesTracees()) or "aucune")
-        nom_zone = input("Entrez le nom de la zone tracee : ").strip()
+        print("contours disponibles :", ", ".join(contours()) or "aucun")
+        nom_zone = input("Entrez le nom du contour : ").strip()
     else:
         print("Choisissez entre 0 et 5."); return None
 
@@ -89,16 +69,7 @@ def main():
     pts = [c for c in grilleCellules(polygone) if enMetropole(*c)]
     print(f"{len(pts)} cellules a construire dans {config.DOSSIER}/ sur {config.N_COEURS} "
           f"coeurs (reprise possible)")
-    ratees, bilan, t0 = [], {}, time.time()
-    with ProcessPoolExecutor(max_workers=config.N_COEURS) as ex:
-        for k, (lat, lon, etat) in enumerate(ex.map(_faire, pts), 1):
-            print(f"[{k}/{len(pts)}] {lat:.2f}, {lon:.2f}  {etat}")
-            cle = "ECHEC" if etat.startswith("ECHEC") else etat
-            bilan[cle] = bilan.get(cle, 0) + 1
-            if cle == "ECHEC":
-                ratees.append((lat, lon))
-    print(f"Termine en {time.time() - t0:.0f}s. "
-          + ", ".join(f"{n} {k}" for k, n in sorted(bilan.items())))
+    ratees = construireTables(pts)
     if ratees:
         print(f"{len(ratees)} echec(s) : {ratees}")
 

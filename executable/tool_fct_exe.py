@@ -1,20 +1,45 @@
 import json
 import os
+import shutil
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 import geopandas as gpd
-import pyogrio
 
 from src import config
+from src.pipeline import dallesManquantes, dossierReprise, lireMetadonnees
+
+
+def ouvrirDossier(chemin):
+    """
+    Ouvre un dossier dans l'explorateur de fichiers du systeme ; sous Linux, l'executable
+    lance xdg-open avec le LD_LIBRARY_PATH d'origine, pas celui des bibliotheques embarquees.
+    --------
+    @param[in] chemin : chemin du dossier
+
+    @return None
+    """
+    if sys.platform == "win32":
+        os.startfile(chemin)
+        return
+    env = dict(os.environ)
+    if getattr(sys, "frozen", False):
+        origine = env.pop("LD_LIBRARY_PATH_ORIG", None)
+        if origine is None:
+            env.pop("LD_LIBRARY_PATH", None)
+        else:
+            env["LD_LIBRARY_PATH"] = origine
+    subprocess.Popen(["xdg-open", chemin], env=env)
 
 
 def formater(valeur, unite):
     """
     Formate une valeur avec un prefixe adapte (k, M, G, T, P pour Wh/Wc, km2 pour m2).
     --------
-    @param[in] valeur : valeur numerique (NaN tolere)
+    @param[in] valeur : valeur numerique (NaN tolere), en kWh ou kWc pour "Wh" ou "Wc"
     @param[in] unite  : "Wh", "Wc", "m2", "m", "deg", "ratio" ou ""
 
     @return chaine affichable ("-" si NaN)
@@ -35,6 +60,39 @@ def formater(valeur, unite):
     return f"{valeur:,.1f} {unite}".replace(",", " ")
 
 
+def resume(df, colonnes):
+    """
+    Effectif, somme, mediane, P10 et P90 de colonnes d'un tableau de batiments.
+    --------
+    @param[in] df       : DataFrame, 1 ligne par batiment
+    @param[in] colonnes : colonnes a resumer
+
+    @return dict {"n", "somme", "med", "p10", "p90"}, chaque statistique en {colonne: valeur}
+    """
+    return {"n":     int(len(df)),
+            "somme": {c: float(df[c].sum()) for c in colonnes},
+            "med":   {c: float(df[c].median()) for c in colonnes},
+            "p10":   {c: float(df[c].quantile(0.10)) for c in colonnes},
+            "p90":   {c: float(df[c].quantile(0.90)) for c in colonnes}}
+
+
+def cellules(r, colonne, unite):
+    """
+    Total, mediane, moyenne et intervalle P10-P90 d'une colonne resumee, formates.
+    --------
+    @param[in] r       : resume (voir resume) ; med, p10, p90 facultatifs
+    @param[in] colonne : nom de la colonne
+    @param[in] unite   : unite d'affichage (voir formater)
+
+    @return liste de 4 chaines ; "-" pour un total sans objet ou une statistique absente
+    """
+    med, p10, p90 = (r.get(cle, {}).get(colonne, float("nan")) for cle in ("med", "p10", "p90"))
+    moyenne = r["somme"][colonne] / r["n"] if r["n"] else float("nan")
+    total = "-" if unite in config.SANS_TOTAL else formater(r["somme"][colonne], unite)
+    intervalle = "-" if p10 != p10 else f"{formater(p10, unite)} à {formater(p90, unite)}"
+    return [total, formater(med, unite), formater(moyenne, unite), intervalle]
+
+
 def echelleGpkg(chemin):
     """
     Echelle lue dans les metadonnees d'un gpkg de resultats.
@@ -44,10 +102,35 @@ def echelleGpkg(chemin):
     @return str ; "" si absente ou illisible
     """
     try:
-        meta = pyogrio.read_info(chemin, layer="batiments")["dataset_metadata"]
-        return json.loads(meta.get("zone", "{}")).get("echelle", "")
+        return lireMetadonnees(chemin).get("zone", {}).get("echelle", "")
     except Exception:
         return ""
+
+
+def mentionIncomplet(chemin):
+    """
+    Mention d'un gpkg incomplet, pour les listes de zones des cartes.
+    --------
+    @param[in] chemin : chemin du .gpkg
+
+    @return " (incomplet : k dalle(s) manquante(s))" ; "" si complet
+    """
+    k = len(dallesManquantes(chemin))
+    return f" (incomplet : {k} dalle(s) manquante(s))" if k else ""
+
+
+def fichiers(dossier, extension):
+    """
+    Fichiers d'un dossier portant une extension, tries.
+    --------
+    @param[in] dossier   : chemin du dossier
+    @param[in] extension : extension, point compris (ex: ".gpkg")
+
+    @return liste de noms ; [] si le dossier n'existe pas
+    """
+    if not os.path.isdir(dossier):
+        return []
+    return sorted(n for n in os.listdir(dossier) if n.endswith(extension))
 
 
 def formaterDuree(secondes):
@@ -69,14 +152,16 @@ def formaterDuree(secondes):
 
 def afficherBilan(bilan):
     """
-    Formate le bilan retourne par runPipeline en lignes de texte, pour affichage GUI.
+    Formate le bilan retourne par runPipeline ou runPipelineDecoupe en lignes de texte, pour
+    affichage GUI.
     --------
-    @param[in] bilan : dict retourne par runPipeline, ou None
+    @param[in] bilan : dict retourne par runPipeline ou runPipelineDecoupe, ou None
 
     @return lignes : liste de chaines, une par ligne a afficher
     """
     if not bilan:
-        return ["Aucun bilan : zone introuvable, hors metropole ou sans batiment."]
+        return ["Aucun bilan : zone introuvable, hors metropole, sans batiment ou sans dalle "
+                "LiDAR HD."]
 
     lignes = []
     lignes.append(f"Fichier      : {bilan.get('fichier')}")
@@ -106,22 +191,37 @@ def afficherBilan(bilan):
         for k, v in prot.items():
             lignes.append(f"   {k:<20}: {v}")
 
+    erreur_relief = bilan.get("relief", {}).get("erreur")
+    if erreur_relief:
+        lignes.append(f"Relief indisponible, ombrage lointain absent : {erreur_relief}")
+
+    def lieu(e):
+        return f"{e['departement']}, {e['nom']}" if "departement" in e else e["nom"]
+
     echecs = bilan.get("echecs", [])
     if echecs:
-        lignes.append(f"{len(echecs)} dalle(s) en echec :")
-        for e in echecs:
-            lignes.append(f"   - {e['nom']} : {e['erreur']}")
+        lignes.append(f"{len(echecs)} dalle(s) manquante(s) apres deux essais, resultat "
+                      f"incomplet ; relancer la zone ne calculera qu'elles :")
+        lignes += [f"   - {lieu(e)} : {e['erreur']}" for e in echecs]
+
+    departements = bilan.get("departements_echec", [])
+    if departements:
+        lignes.append(f"{len(departements)} departement(s) en echec, refaits au prochain "
+                      f"lancement :")
+        lignes += [f"   - {d['nom']} : {d['erreur']}" for d in departements]
 
     return lignes
 
 
-def listesFichiers(parent, geojson_dir, gpkg_dir):
+def listesFichiers(parent, geojson_dir, gpkg_dir, occupe):
     """
-    Listes des geojson et des gpkg, avec suppression de la selection et ouverture du dossier.
+    Listes des geojson et des gpkg, avec suppression de la selection (dalles gardees d'un gpkg
+    comprises), refusee pendant un calcul, et ouverture du dossier.
     --------
     @param[in] parent      : cadre ou ranger les listes
     @param[in] geojson_dir : dossier des .geojson
     @param[in] gpkg_dir    : dossier des .gpkg
+    @param[in] occupe      : fonction () -> True si un calcul tourne
 
     @return fonction rafraichir
     """
@@ -139,18 +239,18 @@ def listesFichiers(parent, geojson_dir, gpkg_dir):
     liste_gpkg.grid(row=1, column=1, sticky="nsew", padx=2)
 
     def rafraichir():
-        liste_geojson.delete(0, "end")
-        liste_gpkg.delete(0, "end")
-        if os.path.isdir(geojson_dir):
-            for nom in sorted(os.listdir(geojson_dir)):
-                liste_geojson.insert("end", nom)
-        if os.path.isdir(gpkg_dir):
-            for nom in sorted(os.listdir(gpkg_dir)):
-                liste_gpkg.insert("end", nom)
+        for liste, dossier, extension in ((liste_geojson, geojson_dir, ".geojson"),
+                                          (liste_gpkg, gpkg_dir, ".gpkg")):
+            liste.delete(0, "end")
+            for nom in fichiers(dossier, extension):
+                liste.insert("end", nom)
 
     def supprimer(listbox, dossier):
         selection = listbox.curselection()
         if not selection:
+            return
+        if occupe():
+            messagebox.showerror("Suppression", "Calcul en cours : suppression possible à la fin.")
             return
         noms = [listbox.get(i) for i in selection]
         if not messagebox.askyesno("Confirmer", f"Supprimer {len(noms)} fichier(s) ?\n" + "\n".join(noms)):
@@ -160,6 +260,9 @@ def listesFichiers(parent, geojson_dir, gpkg_dir):
                 os.remove(os.path.join(dossier, nom))
             except OSError as e:
                 messagebox.showerror("Suppression", f"{nom} : {e}")
+                continue
+            if nom.endswith(".gpkg"):
+                shutil.rmtree(dossierReprise(os.path.splitext(nom)[0]), ignore_errors=True)
         rafraichir()
 
     ttk.Button(colonnes, text="Supprimer",
@@ -168,7 +271,7 @@ def listesFichiers(parent, geojson_dir, gpkg_dir):
                command=lambda: supprimer(liste_gpkg, gpkg_dir)).grid(row=2, column=1, pady=2)
 
     ttk.Button(parent, text="Ouvrir dans l'explorateur",
-               command=lambda: os.startfile(os.path.dirname(geojson_dir))).pack(pady=4)
+               command=lambda: ouvrirDossier(os.path.dirname(geojson_dir))).pack(pady=4)
 
     ttk.Button(parent, text="Rafraîchir", command=rafraichir).pack(pady=5)
 
@@ -205,9 +308,8 @@ def statsRapide(parent_selec, gpkg_dir, parent_stats):
 
     def rafraichir():
         liste_gpkg.delete(0, "end")
-        if os.path.isdir(gpkg_dir):
-            for nom in sorted(os.listdir(gpkg_dir)):
-                liste_gpkg.insert("end", nom)
+        for nom in fichiers(gpkg_dir, ".gpkg"):
+            liste_gpkg.insert("end", nom)
 
     def afficher(texte):
         zone_stats.configure(state="normal")
@@ -229,18 +331,22 @@ def statsRapide(parent_selec, gpkg_dir, parent_stats):
 
     def calcul(nom):
         try:
-            gdf = gpd.read_file(os.path.join(gpkg_dir, nom), ignore_geometry=True)
-            lignes = [f"Fichier : {nom}", f"Nombre de toitures : {len(gdf)}", ""]
-            for nom_colonne, (libelle, unite) in config.COLONNES_SORTIE.items():
-                if nom_colonne not in gdf.columns:
-                    continue
-                col = gdf[nom_colonne]
-                texte = (f"médiane={formater(col.median(), unite)}  "
-                         f"moyenne={formater(col.mean(), unite)}  "
-                         f"P10–P90={formater(col.quantile(0.10), unite)} à "
-                         f"{formater(col.quantile(0.90), unite)}")
+            chemin = os.path.join(gpkg_dir, nom)
+            gdf = gpd.read_file(chemin, ignore_geometry=True)
+            lignes = [f"Fichier : {nom}", f"Nombre de toitures : {len(gdf)}"]
+            manquantes = dallesManquantes(chemin)
+            if manquantes:
+                lignes.append(f"Incomplet : {len(manquantes)} dalle(s) manquante(s), "
+                              f"voir les métadonnées")
+            lignes.append("")
+            colonnes = [c for c in config.COLONNES_SORTIE if c in gdf.columns]
+            r = resume(gdf, colonnes)
+            for c in colonnes:
+                libelle, unite = config.COLONNES_SORTIE[c]
+                total, med, moy, intervalle = cellules(r, c, unite)
+                texte = f"médiane={med}  moyenne={moy}  P10–P90={intervalle}"
                 if unite not in config.SANS_TOTAL:
-                    texte = f"total={formater(col.sum(), unite)}  " + texte
+                    texte = f"total={total}  " + texte
                 lignes.append(f"{libelle:<30}: {texte}")
             resultat = "\n\n".join(lignes)
         except Exception as e:
@@ -256,14 +362,8 @@ def statsRapide(parent_selec, gpkg_dir, parent_stats):
         if nom is None:
             return
         try:
-            meta = pyogrio.read_info(os.path.join(gpkg_dir, nom), layer="batiments")["dataset_metadata"]
-            lisible = {}
-            for cle, valeur in meta.items():
-                try:
-                    lisible[cle] = json.loads(valeur)
-                except (TypeError, ValueError):
-                    lisible[cle] = valeur
-            afficher(json.dumps(lisible, indent=2, ensure_ascii=False))
+            meta = lireMetadonnees(os.path.join(gpkg_dir, nom))
+            afficher(json.dumps(meta, indent=2, ensure_ascii=False))
         except Exception as e:
             afficher(f"[ERREUR] {nom} : {e}")
 

@@ -30,8 +30,8 @@ def zone(echelle, nom_zone, code_dep=None):
     @param[in] nom_zone : adresse, nom du territoire ou nom de la zone tracee
     @param[in] code_dep : code departement, pour 'commune'
 
-    @return polygone shapely WGS84 (cercle d'environ 40 m pour une adresse, metropole seule
-            pour 'nationale') ; None si introuvable
+    @return polygone shapely WGS84 (cercle de config.RAYON_ADRESSE_M pour une adresse,
+            metropole seule pour 'nationale') ; None si introuvable
     """
     if echelle == "polygone":
         chemin = os.path.join(config.DIR_GEOJSON, f"{nom_zone}.geojson")
@@ -52,8 +52,8 @@ def zone(echelle, nom_zone, code_dep=None):
                               timeout=60).json()["features"]
         if not feats:
             return None
-        lon, lat = feats[0]["geometry"]["coordinates"]
-        return Point(lon, lat).buffer(0.0004)
+        point = gpd.GeoSeries([Point(feats[0]["geometry"]["coordinates"])], crs=4326)
+        return point.to_crs(2154).buffer(config.RAYON_ADRESSE_M).to_crs(4326).iloc[0]
 
     nom_zone = nom_zone.replace("'", "''")
     cql = {

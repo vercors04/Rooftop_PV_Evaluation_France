@@ -58,6 +58,17 @@ def partsPerez(f1, f2, SAZ, SEL):
             np.where(ok, hb / som, 0.0).astype(np.float32))
 
 
+def partSol(albedo):
+    """
+    Part du global horizontal reflechie par le sol sur chaque pente de la grille.
+    --------
+    @param[in] albedo : albedo du sol
+
+    @return (n_betas,) float32 : albedo (1 - cos b) / 2
+    """
+    return (albedo * (1.0 - np.cos(np.radians(config.BETAS))) / 2.0).astype(np.float32)
+
+
 def invV(u0, u1, profils):
     """
     Esperance de 1/(U0 + U1 V) par creneau, developpee a l'ordre 2 en V.
@@ -296,7 +307,10 @@ def irrPixels(masque_bat, pente, aspect, incline, incline_or, plat, utile,
     ndir  = horizon.shape[1]
     dmh = (np.round(SAZ / (360 / ndir)).astype(np.int64) % ndir)
 
-    D32   = D.astype(np.float32)
+    g_sol = partSol(config.ALBEDO)
+    ghi = (profils["m_b"] + profils["m_d"]).astype(np.float32)
+    D32 = (D.astype(np.float32)
+           + (g_sol - partSol(config.ALBEDO_TABLES))[None, :, None, None] * ghi)
     actif = (SEL > 0.0) | (D32.max(axis=(0, 1)) > 0.0)
 
     inv_v = np.stack([invV(config.U0_FAIMAN, config.U1_FAIMAN, profils)]
@@ -314,8 +328,6 @@ def irrPixels(masque_bat, pente, aspect, incline, incline_or, plat, utile,
             fc_pose[i, s], fh_pose[i, s] = facteursCiel(hz32[i], p_pose[i, s], a_pose[i, s],
                                                         bande, g["t"], g["w"])
     PC, PH = partsPerez(profils["f1_pond"], profils["f2_pond"], SAZ, SEL)
-    g_sol = (config.ALBEDO * (1.0 - np.cos(np.radians(config.BETAS))) / 2.0).astype(np.float32)
-    ghi = (profils["m_b"] + profils["m_d"]).astype(np.float32)
 
     e_mois, eff_mois = energiePix(
         a, p, a_pose, p_pose, w2, typ, cls, B.astype(np.float32), D32, PC, PH,

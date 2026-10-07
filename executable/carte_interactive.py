@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 import folium
 import pandas as pd
@@ -7,7 +8,8 @@ import geopandas as gpd
 import pyogrio
 
 from src import config
-from executable.tool_fct_exe import formater, echelleGpkg
+from src.acquisition.zone import zone
+from executable.tool_fct_exe import formater, cellules, echelleGpkg, fichiers, mentionIncomplet
 from executable.carte_style import CSS, REMPLI, OPACITE, OPACITE_SURVOL, fondsDeCarte
 
 
@@ -69,9 +71,9 @@ def chargerZone(chemin_gpkg):
     """
     base = os.path.splitext(os.path.basename(chemin_gpkg))[0]
     for nom in (base, base.replace("-", "_"), base.replace("_", "-")):
-        chemin = os.path.join(config.DIR_GEOJSON, f"{nom}.geojson")
-        if os.path.exists(chemin):
-            return gpd.read_file(chemin).to_crs(4326).geometry.iloc[0]
+        contour = zone("polygone", nom)
+        if contour is not None:
+            return contour
     return None
 
 
@@ -132,12 +134,9 @@ def majStats(on_log=print):
         except (json.JSONDecodeError, OSError):
             pass
 
-    presents = {}
-    if os.path.isdir(config.OUT_DIR_PROCESSED):
-        presents = {nom: os.path.getmtime(os.path.join(config.OUT_DIR_PROCESSED, nom))
-                    for nom in os.listdir(config.OUT_DIR_PROCESSED)
-                    if nom.endswith(".gpkg")
-                    and echelleGpkg(os.path.join(config.OUT_DIR_PROCESSED, nom)) != "polygone"}
+    presents = {nom: os.path.getmtime(os.path.join(config.OUT_DIR_PROCESSED, nom))
+                for nom in fichiers(config.OUT_DIR_PROCESSED, ".gpkg")
+                if echelleGpkg(os.path.join(config.OUT_DIR_PROCESSED, nom)) != "polygone"}
 
     change = False
     for nom in list(stats["fichiers"]):
@@ -224,20 +223,11 @@ def valeursDetails(ligne, colonnes):
 
     @return liste (None si la colonne est absente)
     """
-    vals = []
-    for c, (_, unite) in config.COLONNES_SORTIE.items():
-        if f"{c}_s" in colonnes and pd.notna(ligne.get(f"{c}_s")) and ligne["n"] > 0:
-            total = formater(ligne[f"{c}_s"], unite) if unite not in config.SANS_TOTAL else "-"
-            moyenne = formater(ligne[f"{c}_s"] / ligne["n"], unite)
-            if f"{c}_md" in colonnes:
-                mediane = formater(ligne[f"{c}_md"], unite)
-                intervalle = f'{formater(ligne[f"{c}_p10"], unite)} à {formater(ligne[f"{c}_p90"], unite)}'
-            else:
-                mediane = intervalle = "-"
-            vals.append([total, mediane, moyenne, intervalle])
-        else:
-            vals.append(None)
-    return vals
+    r = {"n": ligne["n"]}
+    for suffixe, cle in (("_s", "somme"), ("_md", "med"), ("_p10", "p10"), ("_p90", "p90")):
+        r[cle] = {c: ligne[c + suffixe] for c in config.COLONNES_SORTIE if c + suffixe in colonnes}
+    return [cellules(r, c, unite) if pd.notna(r["somme"].get(c)) and r["n"] > 0 else None
+            for c, (_, unite) in config.COLONNES_SORTIE.items()]
 
 
 def preparer(contours, df, cle_contours, cle_df, prefixe, details, titres):
@@ -418,11 +408,14 @@ def construireCarte(stats):
     }}
     </script>"""
 
-    noms = sorted(nom.replace(".gpkg", "").replace("-", " ") for nom in stats["fichiers"])
-    lignes = "".join(f'<li>{nom}</li>' for nom in noms)
+    lignes = ""
+    for affiche, nom in sorted((n.replace(".gpkg", "").replace("-", " "), n)
+                               for n in stats["fichiers"]):
+        lignes += (f"<li>{affiche}"
+                   f"{mentionIncomplet(os.path.join(config.OUT_DIR_PROCESSED, nom))}</li>")
     secteurs = f"""
     <div id="secteurs" class="encart">
-        <div class="encart-titre">Secteurs traités ({len(noms)})</div>
+        <div class="encart-titre">Secteurs traités ({len(stats["fichiers"])})</div>
         <ul>{lignes}</ul>
     </div>"""
 
@@ -472,11 +465,7 @@ def ouvrirCarte(chemin):
         import webview
     except ImportError:
         import webbrowser
-        webbrowser.open("file:///" + os.path.abspath(chemin).replace("\\", "/"))
+        webbrowser.open(Path(chemin).resolve().as_uri())
         return
     webview.create_window("Carte des résultats", chemin, width=1200, height=800)
     webview.start()
-
-
-if __name__ == "__main__":
-    ouvrirCarte(genererCarte())

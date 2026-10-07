@@ -7,8 +7,8 @@ from src import config
 
 def telechargerFichier(url, nom_fichier, dossier_dest):
     """
-    Telecharge un fichier en streaming, avec config.N_ESSAIS essais espaces de config.PAUSE_DL.
-    Une reponse non raster ou tronquee compte comme un echec.
+    Telecharge un fichier en streaming, avec config.N_ESSAIS essais ; pause de
+    config.PAUSE_DL x numero de l'essai. Une reponse non raster ou tronquee compte comme un echec.
     --------
     @param[in] url          : lien HTTP(S) du fichier
     @param[in] nom_fichier  : nom du fichier sur le disque
@@ -99,7 +99,5 @@ def listeTelechargement(gdf):
 
     @return liste de (nom_mnt, url_mnt, nom_mns, url_mns) ; [] si aucune dalle
     """
-    if gdf is None or len(gdf) == 0:
-        return []
     return [(nomDalle(l.url_mnt), l.url_mnt, nomDalle(l.url_mns), l.url_mns)
             for l in gdf.itertuples()]

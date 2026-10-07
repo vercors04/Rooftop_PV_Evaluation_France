@@ -3,20 +3,21 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - numpy
-  - pandas
-  - geopandas
-  - rasterio
-  - shapely
-  - pyproj
-  - pyogrio
-  - scipy
-  - numba
-  - matplotlib
-  - requests
-  - pvlib
-  - folium
+  - numpy=2.4
+  - pandas=3.0
+  - geopandas=1.1
+  - rasterio=1.4
+  - shapely=2.1
+  - pyproj=3.7
+  - pyogrio=0.12
+  - scipy=1.17
+  - numba=0.66
+  - matplotlib=3.11
+  - requests=2.34
+  - pvlib=0.15
+  - folium=0.20
   - pip
   - pip:
-      - pyinstaller
-      - pywebview
+      - pyinstaller==6.21.*
+      - pywebview==6.2.*; sys_platform == "win32"
+      - pywebview[qt]==6.2.*; sys_platform == "linux"

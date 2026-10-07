@@ -63,17 +63,8 @@ def agregerBatiment(df, gdf, hauteur):
     res["prod_an_kwh_seuil"]   = res["_eff_seuil"] * pv
 
     out = gdf.join(res, how="inner")
-    ordre = (["cleabs", *config.ATTRS_BATI, "pose_plat", "hauteur_p95_m",
-              "nb_pixels", "surf_m2", "surf_m2_plat",
-              "surf_m2_incl", "surf_m2_or", "surf_m2_seuil", "surf_m2_mod",
-              "pente_moy_deg_incl"]
-             + [f"surf_m2_incl_{s}" for s in config.SECTEURS]
-             + ["ciel_moy", "irr_an_kwh", "puissance_kwc", "prod_an_kwh",
-                "irr_an_kwh_orp", "puissance_kwc_orp", "prod_an_kwh_orp",
-                "irr_an_kwh_seuil", "puissance_kwc_seuil", "prod_an_kwh_seuil"]
-             + [f"prod_T{t}_kwh_orp" for t in range(1, 5)]
-             + ["geometry"])
-    return out[ordre]
+    return out[["cleabs", *config.ATTRS_BATI, "pose_plat",
+                *(c for cols in config.GROUPES_SORTIE.values() for c in cols), "geometry"]]
 
 
 def mergeCleabs(gdf):

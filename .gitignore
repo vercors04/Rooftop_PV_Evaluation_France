@@ -2,7 +2,6 @@ settings.json
 .vscode/
 __pycache__/
 
-docs/
 build/
 dist/
 data/
@@ -10,8 +9,6 @@ statistiques/
 src/verif/
 
 00_rapport/
-00_stats_rapport/
-validation/
 01_RoofTool_1.1.0/
 
 *.aux

@@ -7,12 +7,11 @@ from tkinter import ttk, messagebox
 from executable.tool_item_exe import (boiteDefilante, champ, case, champ2, fenetre, boite,
                                       menuCoches, onglets, radioBoutons, onglet, listeDeroulante,
                                       barreProgression, zoneLogs, bouton, bulleAide,
-                                      comboSuggestions)
+                                      comboSuggestions, POLICE_FIXE)
 from executable.tool_fct_exe import afficherBilan, listesFichiers, statsRapide
 from executable.carte_interactive import genererCarte, ouvrirCarte, viderCache
-from executable.carte_dessin import (genererCarte as genererCarteDessin, ouvrirCarteDessin,
-                                     lireTrace, listeTraces, SEUIL_GRAVE,
-                                     viderCache as viderCacheDessin)
+from executable.carte_dessin import (genererCarteDessin, ouvrirCarteDessin, lireTrace,
+                                     listeTraces, viderCacheDessin)
 from src.pipeline import runPipeline, runPipelineDecoupe
 from src import config
 
@@ -35,13 +34,14 @@ class Reglages:
 
     def lire(self):
         """
-        Valeurs saisies, pretes pour config.save.
+        Valeurs saisies, pretes pour config.save ; virgule ou point decimal.
         --------
         @return dict {NOM: valeur} ; leve ValueError sur une saisie non numerique
         """
         valeurs = {nom: int(w.get()) for nom, w in {**self.entiers, **self.listes}.items()}
         valeurs.update({nom: w.get() for nom, w in self.textes.items()})
-        valeurs.update({nom: float(w.get()) for nom, w in self.flottants.items()})
+        valeurs.update({nom: float(w.get().replace(",", "."))
+                        for nom, w in self.flottants.items()})
         valeurs.update({nom: var.get() for nom, var in self.cases.items()})
         valeurs.update({nom: [o for o, v in d.items() if v.get()]
                         for nom, d in self.menus.items()})
@@ -70,7 +70,7 @@ class Appli:
 
     def __init__(self, fen):
         """
-        Fenetre, file des messages du calcul et points d'accroche entre onglets.
+        Fenetre, file des messages du calcul, calcul en cours et points d'accroche entre onglets.
         --------
         @param[in] fen : fenetre principale
 
@@ -78,9 +78,10 @@ class Appli:
         """
         self.fen = fen
         self.file = queue.Queue()
+        self.en_cours = False
         self.reglages = Reglages()
         self.rafraichir = []
-        self.zones_tracees = []
+        self.rappels_trace = []
 
     def rafraichirFichiers(self):
         """
@@ -97,7 +98,7 @@ class Appli:
         --------
         @return None
         """
-        for f in self.zones_tracees:
+        for f in self.rappels_trace:
             f()
 
 
@@ -225,7 +226,8 @@ def saisieZone(parent, echelle):
 
 def zoneDemandee(echelle, saisie):
     """
-    Traduit le choix de l'interface en arguments de runPipeline.
+    Traduit le choix de l'interface en arguments de runPipeline, ou de runPipelineDecoupe pour
+    une region ou la France.
     --------
     @param[in] echelle : echelle choisie (voir config.ECHELLES)
     @param[in] saisie  : widget rendu par saisieZone
@@ -270,8 +272,8 @@ def boiteParametresGlobaux(parent, reglages):
 
     reglages.entiers.update(
         SURF_MIN=champ(b, "Surface min (m2)", config.SURF_MIN),
-        HAUT_MIN=champ(b, "Hauteur min (m)", config.HAUT_MIN, aide="point le plus haut du toit"),
-        HAUT_MAX=champ(b, "Hauteur max (m)", config.HAUT_MAX, aide="point le plus haut du toit"),
+        HAUT_MIN=champ(b, "Hauteur min (m)", config.HAUT_MIN, aide="p95 du toit au-dessus du sol"),
+        HAUT_MAX=champ(b, "Hauteur max (m)", config.HAUT_MAX, aide="p95 du toit au-dessus du sol"),
         AZ_MIN=champ(b, "Azimut min", config.AZ_MIN,
                      aide="degrés, 0 = Nord, 90 = Est. Arc parcouru en sens horaire jusqu'au max."),
         AZ_MAX=champ(b, "Azimut max", config.AZ_MAX, aide="degrés, 0 = Nord, 90 = Est."),
@@ -336,11 +338,11 @@ def ongletCalcul(nb, app):
 
     echelle = radioBoutons(bcz, "Échelle", config.ECHELLES, "Commune ou ville", on_change=rebatir,
                            aide="Région et France : un fichier par département ; ceux déjà "
-                                "calculés sont sautés (supprimer le fichier pour refaire).")
+                                "complets sont sautés (supprimer le fichier pour refaire).")
     sous = ttk.Frame(bcz)
     sous.pack(fill="x")
     rebatir()
-    app.zones_tracees.append(rebatir)
+    app.rappels_trace.append(rebatir)
 
     bl = boite(gauche, "lancement")
     bl.pack(fill="both", expand=True, pady=(10, 0))
@@ -358,6 +360,7 @@ def ongletCalcul(nb, app):
             ecrire(f"[ERREUR] {e}\n")
             return
         config.save(valeurs)
+        app.en_cours = True
         btn.configure(state="disabled")
         barre["value"] = 0
         vider()
@@ -388,12 +391,14 @@ def ongletCalcul(nb, app):
                 elif item[0] == "progress":
                     barre["value"] = item[1] * 100 // item[2]
                 elif item[0] == "done":
+                    app.en_cours = False
                     btn.configure(state="normal")
                     barre["value"] = 0
                     for ligne in afficherBilan(item[1]):
                         ecrire(ligne + "\n")
                     app.rafraichirFichiers()
                 elif item[0] == "error":
+                    app.en_cours = False
                     btn.configure(state="normal")
                     barre["value"] = 0
                     ecrire(f"[ERREUR] {item[1]}\n")
@@ -416,17 +421,18 @@ def groupePv(parent, reglages):
     g = boiteEmpilee(parent, "Modèle photovoltaïque")
     reglages.flottants.update(
         RENDEMENT_MODULE=champ2(g, "Rendement du module PV", config.RENDEMENT_MODULE,
-                                aide="aux conditions standard. 0,20 = 20 %."),
+                                aide="aux conditions standard. 0,22 = 22 %."),
         PR_HORS_TEMP=champ2(g, "Performance ratio (hors température)", config.PR_HORS_TEMP,
                             aide="câblage, onduleur, salissures, désadaptation, "
                                  "indisponibilités."),
         GAMMA_MODULE=champ2(g, "Coefficient de température (/°C)", config.GAMMA_MODULE,
                             aide="perte par degré au-dessus de 25 °C. -0,0035 = -0,35 %/°C."),
         ALBEDO=champ2(g, "Albédo (réflectivité du sol)", config.ALBEDO,
-                      aide="figé dans les tables météo : les reconstruire après changement."))
+                      aide="part du rayonnement réfléchie par le sol vers les plans inclinés."))
     pose = listeDeroulante(g, "Type de pose (pans inclinés)", list(config.POSES), config.POSE,
-                           aide="préremplit U0 et U1. Surimposé : rails sur la couverture ; "
-                                "intégré : remplace la couverture ; libre : châssis ventilé.")
+                           aide="fixe U0 et U1, sauf personnalisé. Surimposé : rails sur la "
+                                "couverture ; intégré : remplace la couverture ; libre : châssis "
+                                "ventilé.")
     reglages.textes.update(POSE=pose)
 
     faiman = boite(g, "Coefficients thermiques de Faiman")
@@ -542,7 +548,7 @@ def groupeGeometrie(parent, reglages):
     plan = boite(g, "Ajustement de plan")
     reglages.entiers.update(
         RAYON_PLAN=champ2(plan, "Demi-fenêtre d'ajustement (px)", config.RAYON_PLAN,
-                          aide="1 = 3x3, 2 = 5x5. Au-delà, les arêtes sont lissées."))
+                          aide="1 = 3x3 (minimum), 2 = 5x5. Au-delà, les arêtes sont lissées."))
     reglages.flottants.update(
         RESIDU_MAX_M=champ2(plan, "Écart max au plan ajusté (m)", config.RESIDU_MAX_M,
                             aide="au-delà, le pixel est écarté (mur, rive). 0 = désactivé."),
@@ -572,9 +578,11 @@ def groupeOmbrage(parent, reglages):
                           aide="portée sur le MNS fin ; la dalle est téléchargée élargie "
                                "d'autant."),
         PAS_RAYON_DIV=champ2(g, "Croissance du pas du rayon", config.PAS_RAYON_DIV,
-                             aide="0 = exact. n : pas += 1 + pas/n, plus rapide, moins exact."))
+                             aide="0 = exact. n : pas de 1 + d/n pixels à la distance d ; plus "
+                                  "rapide, moins exact."))
     reglages.flottants.update(
-        CAP=champ2(g, "Plafond solaire (deg)", config.CAP, aide="au-delà, l'obstacle est ignoré."))
+        CAP=champ2(g, "Plafond solaire (deg)", config.CAP,
+                   aide="au-delà, la direction est masquée et la recherche s'arrête."))
 
     loin = boiteEmpilee(parent, "Ombrage lointain (relief)")
     reglages.entiers.update(
@@ -666,6 +674,9 @@ def ongletAvance(nb, app):
     majVisibilite()
 
     def enregistrer():
+        if app.en_cours:
+            messagebox.showerror("Paramètres", "Calcul en cours : enregistrement possible à la fin.")
+            return
         try:
             valeurs = r.lire()
         except ValueError as e:
@@ -684,7 +695,8 @@ def ongletAvance(nb, app):
 
     bfg = boite(o, "fichiers générés")
     bfg.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-    app.rafraichir.append(listesFichiers(bfg, config.DIR_GEOJSON, config.OUT_DIR_PROCESSED))
+    app.rafraichir.append(listesFichiers(bfg, config.DIR_GEOJSON, config.OUT_DIR_PROCESSED,
+                                         lambda: app.en_cours))
 
 
 def ongletCarte(nb):
@@ -783,9 +795,9 @@ def ongletTracage(nb, app):
             p.join()
             trace = lireTrace()
             if trace:
-                gros = " — pensez à la découper" if trace["n_dalles"] >= SEUIL_GRAVE else ""
-                msg = (f"Zone « {trace['nom']} » enregistrée : "
-                       f"{trace['surface_km2']:.2f} km², {trace['n_dalles']} dalles{gros}.\n"
+                gros = " — pensez à la découper" if trace["niveau"] == "grave" else ""
+                msg = (f"Zone « {trace['nom']} » enregistrée : {trace['surface_km2']:.2f} km², "
+                       f"{trace['n_dalles']} dalles au plus{gros}.\n"
                        f"Choisissez l'échelle « Zone tracée » dans l'onglet principal.")
                 zone.after(0, app.signalerZoneTracee)
             else:
@@ -833,7 +845,7 @@ def ongletApropos(nb):
 
     texte = zoneLogs(b, hauteur=25)
     texte.pack(fill="both", expand=True)
-    texte.configure(font=("Consolas", 10))
+    texte.configure(font=(POLICE_FIXE, 10))
     with open(os.path.join(config.BASE_DATA, "a_propos.md"), encoding="utf-8") as f:
         texte.insert("1.0", f.read())
     texte.configure(state="disabled")
@@ -865,11 +877,11 @@ def main():
     --------
     @return None
     """
-    for dossier in (config.DIR_GEOJSON, config.OUT_DIR_PROCESSED, config.OUT_DIR_RAW):
+    for dossier in config.DOSSIERS_SORTIE:
         os.makedirs(dossier, exist_ok=True)
 
-    fen = fenetre("roofTool", 1000, 500)
-    fen.iconbitmap(os.path.join(config.BASE_DATA, "data/assets", "logo_soleil.ico"))
+    fen = fenetre(f"roofTool {config.VERSION}", 1000, 500,
+                  icone=os.path.join(config.BASE_DATA, "data", "assets", "logo_soleil"))
     construire(fen)
 
     try:
@@ -883,4 +895,5 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    multiprocessing.set_start_method("spawn")
     main()

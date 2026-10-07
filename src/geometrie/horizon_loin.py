@@ -55,7 +55,7 @@ def hzLoin(chemin, meta, mns, toiture):
     cellule du MNT grossier, depuis la mediane du MNS des toits de la cellule.
     --------
     @param[in] chemin  : GeoTIFF rendu par mntRelief (None = pas de calcul)
-    @param[in] meta    : profil rasterio de la dalle (cles transform, resolution)
+    @param[in] meta    : profil rasterio de la dalle (cles transform, resolution, width, height)
     @param[in] mns     : 2D float du MNS de la dalle
     @param[in] toiture : 2D bool des pixels de toit de la dalle
 

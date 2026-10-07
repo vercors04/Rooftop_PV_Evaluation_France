@@ -8,8 +8,8 @@ import requests
 from src import config
 
 
-CLES_TEMP = ("m_b", "m_d", "m_bb", "m_bd", "m_dd", "t_pond", "v_pond", "v_var",
-             "f1_pond", "f2_pond")
+CLES_PROFILS = ("m_b", "m_d", "m_bb", "m_bd", "m_dd", "t_pond", "v_pond", "v_var",
+                "f1_pond", "f2_pond")
 
 
 def transpAgr(bhi, dhi, lat, lon):
@@ -40,7 +40,7 @@ def transpAgr(bhi, dhi, lat, lon):
                 surface_tilt=b, surface_azimuth=a,
                 solar_zenith=sp["apparent_zenith"], solar_azimuth=sp["azimuth"],
                 dni=dni, ghi=ghi, dhi=dhi,
-                dni_extra=dni_extra, airmass=airmass, albedo=config.ALBEDO, model="perez")
+                dni_extra=dni_extra, airmass=airmass, albedo=config.ALBEDO_TABLES, model="perez")
             direct = poa["poa_direct"].fillna(0)
             diffus = (poa["poa_sky_diffuse"] + poa["poa_ground_diffuse"]).fillna(0)
             B[i, j] = profMH(direct, cles)
@@ -103,7 +103,7 @@ def profilsCellule(bhi, dhi, temp_air, wind_speed, lat, lon):
     @param[in] wind_speed : Series horaire de vent a 10 m (m/s)
     @param[in] lat, lon   : centre de la cellule (deg WGS84)
 
-    @return dict des 10 profils (12, 24) float32, cles de CLES_TEMP
+    @return dict des 10 profils (12, 24) float32, cles de CLES_PROFILS
     """
     ghi  = (bhi + dhi).clip(lower=0)
     cles = [ghi.index.month, ghi.index.hour]
@@ -141,29 +141,46 @@ def profilsCellule(bhi, dhi, temp_air, wind_speed, lat, lon):
     return {k: v.astype(np.float32) for k, v in prof.items()}
 
 
-def serieBrute(lat, lon):
+def requetePvgis(service, params, delai):
     """
-    Series horaires PVGIS (SARAH-3, 2005-2023) du plan horizontal, avec config.N_ESSAIS essais
-    a delai doublant.
+    Requete a l'API PVGIS, avec config.N_ESSAIS essais a delai doublant.
     --------
-    @param[in] lat, lon : point (deg WGS84)
+    @param[in] service : point d'entree (ex: "seriescalc")
+    @param[in] params  : parametres de la requete
+    @param[in] delai   : delai d'attente de la reponse (s)
 
-    @return bhi, dhi, temp_air, wind_speed : Series horaires, DatetimeIndex UTC ; leve la
+    @return cle "outputs" de la reponse JSON ; None si PVGIS refuse le point (code 400) ; leve la
             derniere exception apres tous les echecs
     """
-    params = {"lat": lat, "lon": lon, "startyear": 2005, "endyear": 2023,
-              "raddatabase": "PVGIS-SARAH3", "components": 1,
-              "angle": 0, "aspect": -180, "usehorizon": 0, "outputformat": "json"}
     for essai in range(1, config.N_ESSAIS + 1):
         try:
-            r = requests.get(config.URL + "seriescalc", timeout=300, params=params)
+            r = requests.get(config.URL + service, timeout=delai, params=params)
+            if r.status_code == 400:
+                return None
             r.raise_for_status()
-            heures = r.json()["outputs"]["hourly"]
-            break
+            return r.json()["outputs"]
         except (requests.RequestException, ValueError, KeyError):
             if essai == config.N_ESSAIS:
                 raise
             time.sleep(min(config.PAUSE_DL * 2 ** (essai - 1), 300))
+
+
+def serieBrute(lat, lon):
+    """
+    Series horaires PVGIS (SARAH-3, 2005-2023) du plan horizontal (voir requetePvgis).
+    --------
+    @param[in] lat, lon : point (deg WGS84)
+
+    @return bhi, dhi, temp_air, wind_speed : Series horaires, DatetimeIndex UTC ; leve une
+            exception si PVGIS echoue ou n'a pas de donnee au point
+    """
+    params = {"lat": lat, "lon": lon, "startyear": 2005, "endyear": 2023,
+              "raddatabase": "PVGIS-SARAH3", "components": 1,
+              "angle": 0, "aspect": -180, "usehorizon": 0, "outputformat": "json"}
+    sortie = requetePvgis("seriescalc", params, 300)
+    if sortie is None:
+        raise ValueError(f"PVGIS n'a pas de donnee en ({lat}, {lon})")
+    heures = sortie["hourly"]
     index = pd.to_datetime([e["time"] for e in heures], format="%Y%m%d:%H%M", utc=True)
     serie = lambda cle: pd.Series([e[cle] for e in heures], index=index, dtype=float)
     return (serie("Gb(i)").clip(lower=0),
@@ -174,7 +191,7 @@ def serieBrute(lat, lon):
 def irradiationAnnuelle(lat, lon):
     """
     Irradiation annuelle moyenne PVGIS (SARAH-3, 2005-2023, sans horizon) du plan horizontal
-    et du plan d'inclinaison optimale. Retentee comme serieBrute.
+    et du plan d'inclinaison optimale (voir requetePvgis).
     --------
     @param[in] lat, lon : point (deg WGS84)
 
@@ -183,18 +200,10 @@ def irradiationAnnuelle(lat, lon):
     params = {"lat": lat, "lon": lon, "startyear": 2005, "endyear": 2023,
               "raddatabase": "PVGIS-SARAH3", "horirrad": 1, "optrad": 1, "usehorizon": 0,
               "outputformat": "json"}
-    for essai in range(1, config.N_ESSAIS + 1):
-        try:
-            r = requests.get(config.URL + "MRcalc", timeout=120, params=params)
-            if r.status_code == 400:
-                return None
-            r.raise_for_status()
-            mois = r.json()["outputs"]["monthly"]
-            break
-        except (requests.RequestException, ValueError, KeyError):
-            if essai == config.N_ESSAIS:
-                raise
-            time.sleep(min(config.PAUSE_DL * 2 ** (essai - 1), 300))
+    sortie = requetePvgis("MRcalc", params, 120)
+    if sortie is None:
+        return None
+    mois = sortie["monthly"]
     ans = len({m["year"] for m in mois})
     return sum(m["H(h)_m"] for m in mois) / ans, sum(m["H(i_opt)_m"] for m in mois) / ans
 
@@ -226,6 +235,17 @@ def sousCellules(lat, lon):
     return [(round(lat + a, 3), round(lon + b, 3)) for a in (-d, d) for b in (-d, d)]
 
 
+def surGrille(v):
+    """
+    Coordonnee ramenee au centre de cellule le plus proche (multiple de PAS).
+    --------
+    @param[in] v : latitude ou longitude (deg)
+
+    @return coordonnee arrondie a 2 decimales
+    """
+    return round(round(v / config.PAS) * config.PAS, 2)
+
+
 def celluleMeteo(lat, lon):
     """
     Table d'un point : sa sous-cellule si elle a ete construite, sinon sa cellule.
@@ -235,8 +255,7 @@ def celluleMeteo(lat, lon):
     @return lat_c, lon_c : centre de la table
     @return fine         : True pour une sous-cellule
     """
-    la = round(round(lat / config.PAS) * config.PAS, 2)
-    lo = round(round(lon / config.PAS) * config.PAS, 2)
+    la, lo = surGrille(lat), surGrille(lon)
     d = config.PAS_FIN / 2
     fla, flo = round(la + (d if lat >= la else -d), 3), round(lo + (d if lon >= lo else -d), 3)
     if os.path.exists(cheminTable(fla, flo, fine=True)):
@@ -269,7 +288,7 @@ def chargerTable(lat, lon):
 
     @return B, D     : (n_alphas, n_betas, 12, 24), direct et diffus (ciel + sol), W/m2
     @return SAZ, SEL : (12, 24), azimut et elevation du soleil (deg)
-    @return profils  : dict des 10 profils (12, 24) de CLES_TEMP
+    @return profils  : dict des 10 profils (12, 24) de CLES_PROFILS
     """
     la, lo, fine = celluleMeteo(lat, lon)
 
@@ -280,6 +299,6 @@ def chargerTable(lat, lon):
                                     f"construire avec main_meteo.")
         with np.load(chemin) as d:
             _cache[(la, lo)] = (d["B"].astype(np.float32), d["D"].astype(np.float32),
-                                d["SAZ"], d["SEL"], {cle: d[cle] for cle in CLES_TEMP})
+                                d["SAZ"], d["SEL"], {cle: d[cle] for cle in CLES_PROFILS})
 
     return _cache[(la, lo)]

@@ -53,7 +53,7 @@ def fondsDeCarte(carte):
                      overlay=False, control=True, max_zoom=19).add_to(carte)
     folium.TileLayer(tiles=config.TUILES_ORTHO, attr=config.ATTRIB_IGN, name="Vue aérienne",
                      overlay=False, control=True, show=False, max_zoom=19).add_to(carte)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri", name="Vue satellite (Esri)", overlay=False, control=True, show=False).add_to(carte)
+    folium.TileLayer(tiles=config.TUILES_SATELLITE, attr=config.ATTRIB_ESRI,
+                     name="Vue satellite (Esri)", overlay=False, control=True,
+                     show=False).add_to(carte)
     Geocoder(position="topright", zoom=13, add_marker=False).add_to(carte)

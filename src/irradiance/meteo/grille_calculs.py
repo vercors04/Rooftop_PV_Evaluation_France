@@ -1,11 +1,13 @@
 import os
+import time
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 from shapely.geometry import box
 from shapely.prepared import prep
 
 from src.irradiance.meteo.grille_fct import (serieBrute, transpAgr, profilsCellule, cheminTable,
-                                             sousCellules, irradiationAnnuelle)
+                                             sousCellules, irradiationAnnuelle, surGrille)
 from src import config
 
 
@@ -18,9 +20,8 @@ def grilleCellules(polygone):
     @return liste de tuples (lat, lon), alignes sur la meme grille que chargerTable
     """
     minx, miny, maxx, maxy = polygone.bounds
-    snap = lambda v: round(round(v / config.PAS) * config.PAS, 2)
-    lats = np.round(np.arange(snap(miny), snap(maxy) + config.PAS/2, config.PAS), 2)
-    lons = np.round(np.arange(snap(minx), snap(maxx) + config.PAS/2, config.PAS), 2)
+    lats = np.round(np.arange(surGrille(miny), surGrille(maxy) + config.PAS/2, config.PAS), 2)
+    lons = np.round(np.arange(surGrille(minx), surGrille(maxx) + config.PAS/2, config.PAS), 2)
     dans = prep(polygone)
     h = config.PAS / 2
     return [(la, lo) for la in lats for lo in lons
@@ -48,6 +49,48 @@ def construireCellule(lat, lon, fine=False):
                         alphas=config.ALPHAS, betas=config.BETAS, lat=lat, lon=lon,
                         source="PVGIS-SARAH3 2005-2023, Perez")
     os.replace(tmp, chemin)
+
+
+def construireAbsente(centre, fine=False):
+    """
+    Construit la table d'une cellule ou d'une sous-cellule si elle est absente.
+    --------
+    @param[in] centre : (lat, lon) du centre
+    @param[in] fine   : True pour une sous-cellule
+
+    @return (lat, lon, etat)
+    """
+    lat, lon = centre
+    if os.path.exists(cheminTable(lat, lon, fine)):
+        return (lat, lon, "deja faite")
+    try:
+        construireCellule(lat, lon, fine)
+        return (lat, lon, "construite")
+    except Exception as e:
+        return (lat, lon, f"ECHEC : {e}")
+
+
+def construireTables(centres, fine=False):
+    """
+    Construit en parallele les tables absentes, en affichant l'avancement puis le bilan.
+    --------
+    @param[in] centres : (lat, lon) des centres
+    @param[in] fine    : True pour des sous-cellules
+
+    @return liste des (lat, lon) en echec
+    """
+    ratees, bilan, t0 = [], {}, time.time()
+    with ProcessPoolExecutor(max_workers=config.N_COEURS) as ex:
+        for k, (lat, lon, etat) in enumerate(
+                ex.map(construireAbsente, centres, [fine] * len(centres)), 1):
+            print(f"[{k}/{len(centres)}] {lat:g}, {lon:g}  {etat}")
+            cle = "ECHEC" if etat.startswith("ECHEC") else etat
+            bilan[cle] = bilan.get(cle, 0) + 1
+            if cle == "ECHEC":
+                ratees.append((lat, lon))
+    print(f"Termine en {time.time() - t0:.0f}s. "
+          + ", ".join(f"{n} {k}" for k, n in sorted(bilan.items())))
+    return ratees
 
 
 def ecartsCellule(lat, lon):

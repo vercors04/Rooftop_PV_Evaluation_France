@@ -1,4 +1,6 @@
 import math
+import os
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -6,6 +8,9 @@ from tkinter import ttk, scrolledtext, messagebox
 import requests
 
 DELAI_SUGGESTION_MS = 300
+POLICE_FIXE = "Consolas" if sys.platform == "win32" else "monospace"
+TAILLE_ICONE = 128
+MOLETTE = ("<MouseWheel>", "<Button-4>", "<Button-5>")
 
 
 def onglets(parent):
@@ -66,19 +71,28 @@ def bouton(parent, libelle, commande, aide=None):
     return b
 
 
-def fenetre(titre="", largeur=600, hauteur=400):
+def fenetre(titre="", largeur=600, hauteur=400, icone=None):
     """
     Fenetre principale.
     --------
     @param[in] titre   : titre de la fenetre
     @param[in] largeur : largeur (px)
     @param[in] hauteur : hauteur (px)
+    @param[in] icone   : chemin de l'icone sans extension, .ico sous Windows, .png ailleurs ;
+                         ignoree si le fichier manque (optionnel)
 
     @return Tk
     """
     fen = tk.Tk()
     fen.title(titre)
     fen.geometry(f"{largeur}x{hauteur}")
+    chemin = None if icone is None else icone + (".ico" if sys.platform == "win32" else ".png")
+    if chemin is not None and os.path.exists(chemin):
+        if sys.platform == "win32":
+            fen.iconbitmap(chemin)
+        else:
+            image = tk.PhotoImage(master=fen, file=chemin)
+            fen.iconphoto(True, image.subsample(max(1, image.width() // TAILLE_ICONE)))
     fen.columnconfigure(0, weight=1)
     fen.rowconfigure(0, weight=1)
     return fen
@@ -291,13 +305,22 @@ def boiteDefilante(parent, titre):
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(fenetre_id, width=e.width))
     canvas.configure(yscrollcommand=scrollbar.set)
 
-    canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
 
     def molette(event):
-        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", molette))
-    canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        canvas.yview_scroll({4: -1, 5: 1}.get(event.num, int(-1 * (event.delta / 120))), "units")
+
+    def lier(event):
+        for sequence in MOLETTE:
+            canvas.bind_all(sequence, molette)
+
+    def delier(event):
+        for sequence in MOLETTE:
+            canvas.unbind_all(sequence)
+
+    canvas.bind("<Enter>", lier)
+    canvas.bind("<Leave>", delier)
 
     return exterieur, interieur
 
