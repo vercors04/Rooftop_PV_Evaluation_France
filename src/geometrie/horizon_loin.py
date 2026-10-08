@@ -1,4 +1,5 @@
 import os
+import re
 
 import numpy as np
 import rasterio
@@ -14,8 +15,8 @@ ALTI_MIN_M = -100.0
 
 def mntRelief(url_mnt, bounds, nom_zone, on_log=print):
     """
-    MNT grossier de toute la zone pour l'horizon lointain, en une requete WMS ; cache sur
-    disque, retelecharge s'il ne couvre pas la zone.
+    MNT grossier de toute la zone pour l'horizon lointain, en une requete WMS ; garde sur
+    disque tant que la zone est incomplete, retelecharge s'il ne la couvre pas.
     --------
     @param[in] url_mnt  : GetMap WMS d'une dalle MNT de la zone
     @param[in] bounds   : (xmin, ymin, xmax, ymax) de la zone, Lambert 93
@@ -47,6 +48,21 @@ def mntRelief(url_mnt, bounds, nom_zone, on_log=print):
     chemin = telechargerFichier(url, nom, config.DIR_RELIEF)
     on_log(f"relief : {nom} telecharge ({os.path.getsize(chemin)/1e6:.1f} Mo)")
     return chemin
+
+
+def reliefsZone(nom_zone):
+    """
+    MNT de relief enregistres pour une zone, tous pas et portees confondus.
+    --------
+    @param[in] nom_zone : nom de la zone (nom du cache, voir mntRelief)
+
+    @return liste de chemins
+    """
+    if not os.path.isdir(config.DIR_RELIEF):
+        return []
+    motif = re.compile(rf"relief_{re.escape(nom_zone)}_\d+m_\d+m\.tif")
+    return [os.path.join(config.DIR_RELIEF, n) for n in os.listdir(config.DIR_RELIEF)
+            if motif.fullmatch(n)]
 
 
 def hzLoin(chemin, meta, mns, toiture):

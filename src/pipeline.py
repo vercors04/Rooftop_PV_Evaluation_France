@@ -16,7 +16,7 @@ from src.tuile.raster import chargerDalle
 from src.tuile.donnees_dalle import nomCoord, centreWGS84, tileBounds, enMetropole
 from src.geometrie.extract_geom import extractGeom, makeMasques, eroderToit
 from src.geometrie.horizon import compHZ
-from src.geometrie.horizon_loin import mntRelief, hzLoin
+from src.geometrie.horizon_loin import mntRelief, hzLoin, reliefsZone
 from src.irradiance.meteo.grille_fct import chargerTable, tablesMeteo
 from src.irradiance.irr_calcul import irrPixels
 from src.irradiance.pose_plat import posesBatiments, description
@@ -52,6 +52,22 @@ def dossierReprise(nom_fichier):
     @return chemin dans config.DIR_EN_COURS
     """
     return os.path.join(config.DIR_EN_COURS, nom_fichier)
+
+
+def effacerReprise(nom_fichier):
+    """
+    Efface le dossier de reprise et les MNT de relief d'une zone.
+    --------
+    @param[in] nom_fichier : nom de la zone (voir nomFichier)
+
+    @return None
+    """
+    shutil.rmtree(dossierReprise(nom_fichier), ignore_errors=True)
+    for chemin in reliefsZone(nom_fichier):
+        try:
+            os.remove(chemin)
+        except OSError:
+            pass
 
 
 def dossierTravail(nom_fichier, polygone, relief, on_log=print):
@@ -178,8 +194,9 @@ def traiterDalle(mns_path, mnt_path, gdf, relief=None, temps=None):
 def runPipeline(echelle, nom_zone, code_dep=None, on_progress=None, on_log=print):
     """
     Traite la zone : dalles, calcul parallele, fusion, filtre, protections, ecriture du gpkg.
-    Le dossier des dalles finies (voir dossierTravail) est efface quand toutes sont calculees ;
-    sinon le gpkg porte les dalles manquantes et relancer la zone ne calcule qu'elles.
+    Le dossier des dalles finies (voir dossierTravail) et le MNT de relief sont effaces quand
+    toutes sont calculees ; sinon le gpkg porte les dalles manquantes et relancer la zone ne
+    calcule qu'elles.
     --------
     @param[in] echelle, nom_zone, code_dep : definition de la zone (voir zone)
     @param[in] on_progress : callback (i, total) a chaque dalle finie (None = aucun)
@@ -242,7 +259,7 @@ def runPipeline(echelle, nom_zone, code_dep=None, on_progress=None, on_log=print
     if not resultats:
         on_log("aucun batiment traite")
         if not manquantes:
-            shutil.rmtree(dossier, ignore_errors=True)
+            effacerReprise(nom_fichier)
         return {"fichier": None, "total": total, "echecs": manquantes}
 
     t0 = time.time()
@@ -281,7 +298,7 @@ def runPipeline(echelle, nom_zone, code_dep=None, on_progress=None, on_log=print
         on_log(f"{len(manquantes)} dalle(s) manquante(s) apres deux essais : resultat "
                f"incomplet ; relancer la zone ne calculera qu'elles")
     else:
-        shutil.rmtree(dossier, ignore_errors=True)
+        effacerReprise(nom_fichier)
     t_ecriture = time.time() - t0
 
     def moyenne(cle):

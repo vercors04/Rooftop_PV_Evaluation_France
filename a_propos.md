@@ -63,7 +63,7 @@ Ombrage
   100 m. Le MNS est téléchargé avec 100 m de marge autour de la dalle. Une
   direction dont l'horizon dépasse 75° est masquée.
 - Horizon lointain : MNT de relief à 50 m sur la zone et 20 km autour,
-  téléchargé une fois par zone. Rayons de 1 à 20 km, depuis l'altitude médiane
+  téléchargé une fois par zone et supprimé quand elle est complète. Rayons de 1 à 20 km, depuis l'altitude médiane
   des toits de chaque cellule de 50 m.
 - Horizon retenu : le plus haut des deux, par direction.
 - Direct : compté si le soleil est au-dessus de l'horizon dans sa direction.
@@ -179,8 +179,8 @@ Calcul et reprise
 - Une dalle en échec est retentée une fois en fin de calcul. Si elle échoue
   encore, le fichier est écrit sans elle et le signale dans ses métadonnées.
   Relancer la zone ne calcule qu'elle.
-- Le dossier de reprise est supprimé quand la zone est complète, ou avec son
-  fichier depuis l'interface.
+- Le dossier de reprise et le MNT de relief sont supprimés quand la zone est
+  complète, ou avec le fichier depuis l'interface.
 - Un calcul utilise un seul jeu de réglages, enregistré dans les métadonnées.
 
 

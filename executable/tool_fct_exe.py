@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -10,7 +9,7 @@ from tkinter import ttk, messagebox
 import geopandas as gpd
 
 from src import config
-from src.pipeline import dallesManquantes, dossierReprise, lireMetadonnees
+from src.pipeline import dallesManquantes, effacerReprise, lireMetadonnees
 
 
 def ouvrirDossier(chemin):
@@ -215,8 +214,8 @@ def afficherBilan(bilan):
 
 def listesFichiers(parent, geojson_dir, gpkg_dir, occupe):
     """
-    Listes des geojson et des gpkg, avec suppression de la selection (dalles gardees d'un gpkg
-    comprises), refusee pendant un calcul, et ouverture du dossier.
+    Listes des geojson et des gpkg, avec suppression de la selection (dalles gardees et MNT de
+    relief d'un gpkg compris), refusee pendant un calcul, et ouverture du dossier.
     --------
     @param[in] parent      : cadre ou ranger les listes
     @param[in] geojson_dir : dossier des .geojson
@@ -262,7 +261,7 @@ def listesFichiers(parent, geojson_dir, gpkg_dir, occupe):
                 messagebox.showerror("Suppression", f"{nom} : {e}")
                 continue
             if nom.endswith(".gpkg"):
-                shutil.rmtree(dossierReprise(os.path.splitext(nom)[0]), ignore_errors=True)
+                effacerReprise(os.path.splitext(nom)[0])
         rafraichir()
 
     ttk.Button(colonnes, text="Supprimer",
