@@ -1,31 +1,31 @@
 # roofTool
 
-Potentiel photovoltaïque des toitures de France métropolitaine, bâtiment par
-bâtiment.
+Photovoltaic potential of rooftops in metropolitan France, building by
+building.
 
-roofTool lit le LiDAR HD et la BD TOPO de l'IGN, et les séries météo de PVGIS
-(SARAH-3). Pour une zone (adresse, commune, département, région, France ou zone
-tracée), il écrit un GeoPackage avec une ligne par bâtiment : surface posable,
-irradiation reçue, puissance crête, production annuelle et trimestrielle, part
-de ciel visible, protections patrimoniales.
+roofTool reads IGN's LiDAR HD and BD TOPO, and PVGIS weather series
+(SARAH-3). For an area (address, municipality, department, region, France or
+drawn area), it writes a GeoPackage with one row per building: installable
+area, received irradiation, peak power, annual and quarterly production,
+visible sky fraction, heritage protections.
 
-## Méthode
+## Method
 
-1. Bâtiments BD TOPO et dalles LiDAR HD de la zone, lus sur la Géoplateforme
-   (WFS, WMS).
-2. Pente et orientation de chaque pixel de toit (0,5 m) : plan ajusté sur le
-   MNS. Murs, rives et pentes de plus de 45° écartés.
-3. Horizon de chaque pixel : bâtiments et végétation jusqu'à 100 m (MNS),
-   relief jusqu'à 20 km (MNT).
-4. Irradiance : tables météo par cellule de 0,10° (0,05° là où l'irradiation
-   varie), transposition de Perez, direct et diffus masqués par l'horizon.
-5. Production : température des modules (Faiman), rendement 0,22, PR hors
-   température 0,79, part du toit équipée (0,60 sur les pans inclinés).
-6. Agrégation par bâtiment, filtres de surface et de hauteur, marquage des
-   zones protégées.
+1. BD TOPO buildings and LiDAR HD tiles of the area, read from the
+   Géoplateforme (WFS, WMS).
+2. Slope and orientation of each roof pixel (0.5 m): plane fitted on the
+   DSM. Walls, edges and slopes over 45° discarded.
+3. Horizon of each pixel: buildings and vegetation up to 100 m (DSM),
+   terrain up to 20 km (DTM).
+4. Irradiance: weather tables per 0.10° cell (0.05° where the irradiation
+   varies), Perez transposition, direct and diffuse masked by the horizon.
+5. Production: module temperature (Faiman), efficiency 0.22, PR excluding
+   temperature 0.79, equipped share of the roof (0.60 on pitched sections).
+6. Aggregation per building, area and height filters, marking of
+   protected zones.
 
-Détail de la méthode, des limites et des colonnes : [a_propos.md](a_propos.md),
-aussi affiché dans l'onglet « À propos ».
+Details of the method, limits and columns: [a_propos.md](a_propos.md),
+also displayed in the "À propos" tab.
 
 ## Installation
 
@@ -34,41 +34,40 @@ conda env create -f environment.yml
 conda activate stage-lidar
 ```
 
-Données : télécharger `data.zip` depuis la release GitHub et le décompresser à
-la racine du dépôt. Il contient `data/tables` (tables météo), `data/contours`
-(contours des cartes) et `data/assets` (icône). Les dossiers de travail sont
-créés au lancement.
+Data: download `data.zip` from the GitHub release and unzip it at the root of
+the repository. It contains `data/tables` (weather tables), `data/contours`
+(map outlines) and `data/assets` (icon). The working folders are created at
+launch.
 
-## Utilisation
+## Usage
 
 ```bash
 python interface.py
 ```
 
-Choisir une zone dans l'onglet « Calcul », puis lancer. Les résultats sont
-écrits dans `data/processed/gpkg/`. Les onglets « Carte des résultats » et
-« Info fichiers » les affichent.
+Choose an area in the "Calcul" tab, then launch. The results are written to
+`data/processed/gpkg/`. The "Carte des résultats" and "Info fichiers" tabs
+display them.
 
-## Exécutable
+## Executable
 
 ```bash
 conda activate stage-lidar
 pyinstaller main.spec
 ```
 
-L'environnement doit être activé, sinon des bibliothèques de GDAL et PROJ
-manquent. Les données doivent être en place : elles sont embarquées. Construire
-sur l'OS visé (Windows ou Linux). Résultat : dossier `dist/roofTool`.
+The environment must be activated, otherwise GDAL and PROJ libraries are
+missing. The data must be in place: they are embedded. Build on the target OS
+(Windows or Linux). Result: `dist/roofTool` folder.
 
-## Tables météo
+## Weather tables
 
-Les tables sont fournies dans `data.zip`. Pour construire les tables absentes
-d'une zone, choisie au terminal :
+The tables are provided in `data.zip`. To build the tables missing for an area,
+chosen in the terminal:
 
 ```bash
 python -m src.irradiance.meteo.main_meteo
 python -m src.irradiance.meteo.raffiner
 ```
 
-Le premier construit les cellules de 0,10°, le second les sous-cellules de
-0,05°.
+The first builds the 0.10° cells, the second the 0.05° sub-cells.
