@@ -268,8 +268,9 @@ def boiteParametresGlobaux(parent, reglages):
 
     @return LabelFrame a placer
     """
-    exterieur, b = boiteDefilante(parent, "paramètres globaux")
+    exterieur, colonne = boiteDefilante(parent, "paramètres globaux")
 
+    b = boiteEmpilee(colonne, "Sélection des toits")
     reglages.entiers.update(
         SURF_MIN=champ(b, "Surface min (m2)", config.SURF_MIN),
         HAUT_MIN=champ(b, "Hauteur min (m)", config.HAUT_MIN, aide="p95 du toit au-dessus du sol"),
@@ -281,9 +282,8 @@ def boiteParametresGlobaux(parent, reglages):
                          aide="en dessous, le toit est plat"),
         PENTE_MAX=champ(b, "Pente max (deg)", config.PENTE_MAX,
                         aide="au-delà, le pixel est écarté. 70 au plus, ramené sinon."))
-    reglages.flottants.update(
-        SEUIL_IRRADIANCE=champ(b, "Seuil irradiance", config.SEUIL_IRRADIANCE,
-                               aide="kWh/m²/an reçus, ombrage compris, pour les sorties « seuil »"))
+
+    b = boiteEmpilee(colonne, "Bâtiments BD TOPO")
     reglages.cases.update(
         CONSTRUCTION_LEGERE=case(b, "Inclure les constructions légères",
                                  config.CONSTRUCTION_LEGERE))
@@ -293,7 +293,10 @@ def boiteParametresGlobaux(parent, reglages):
         ETAT=menuCoches(b, "État", config.ETATS, config.ETAT),
         NATURE_OK=menuCoches(b, "Natures gardées", config.NATURES, config.NATURE_OK),
         USAGE_OK=menuCoches(b, "Usages gardés", config.USAGE_1, config.USAGE_OK,
-                            aide="beaucoup de bâtiments sont notés « Indifférencié »"),
+                            aide="beaucoup de bâtiments sont notés « Indifférencié »"))
+
+    b = boiteEmpilee(colonne, "Protections")
+    reglages.menus.update(
         PROTECTIONS_OK=menuCoches(b, "Protections", list(config.PROTECTIONS),
                                   config.PROTECTIONS_OK,
                                   aide="zones où un refus reste possible (L111-17). Une colonne "
@@ -302,6 +305,11 @@ def boiteParametresGlobaux(parent, reglages):
         PROTECTIONS_EXCLURE=case(b, "Supprimer les bâtiments protégés", config.PROTECTIONS_EXCLURE,
                                  aide="retire du gpkg les bâtiments marqués au lieu de les "
                                       "signaler"))
+
+    b = boiteEmpilee(colonne, "Sortie")
+    reglages.flottants.update(
+        SEUIL_IRRADIANCE=champ(b, "Seuil irradiance", config.SEUIL_IRRADIANCE,
+                               aide="kWh/m²/an reçus, ombrage compris, pour les sorties « seuil »"))
     reglages.menus.update(
         SORTIE_GARDEES=menuCoches(b, "Colonnes de sortie", list(config.GROUPES_SORTIE),
                                   config.SORTIE_GARDEES,

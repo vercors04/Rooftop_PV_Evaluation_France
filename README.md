@@ -58,7 +58,9 @@ pyinstaller main.spec
 
 The environment must be activated, otherwise GDAL and PROJ libraries are
 missing. The data must be in place: they are embedded. Build on the target OS
-(Windows or Linux). Result: `dist/roofTool` folder.
+(Windows or Linux). Result: `dist/roofTool` folder. The built tool writes its
+results and settings to `%LOCALAPPDATA%\roofTool` (Windows) or
+`~/.local/share/roofTool` (Linux).
 
 ## Weather tables
 

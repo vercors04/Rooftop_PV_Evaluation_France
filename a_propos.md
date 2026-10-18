@@ -3,6 +3,11 @@ métropolitaine, bâtiment par bâtiment. Il produit un GeoPackage par zone, ave
 une ligne par bâtiment. Les valeurs citées sont celles par défaut ; la plupart
 se règlent dans l'interface.
 
+Les GeoPackages sont écrits dans data/processed/gpkg/. Avec l'exécutable, ce
+dossier est dans %LOCALAPPDATA%\roofTool sous Windows, ~/.local/share/roofTool
+sous Linux. Le bouton « Ouvrir dans l'explorateur » de l'onglet « Info
+fichiers » ouvre data/processed/.
+
 
 Données
 =======
